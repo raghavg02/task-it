@@ -541,11 +541,6 @@ npm run preview   # Preview the production build
 
 5. **Z-Index Hierarchy**: A strict layering system is enforced — global navigation elements (header, dropdowns) at `z-[9999]`, page-level menus at `z-50`, and content at `z-0` — ensuring interactive menus never overlap incorrectly.
 
----
-
-## License
-
-This project is licensed under the **ISC License**.
 
 ---
 
