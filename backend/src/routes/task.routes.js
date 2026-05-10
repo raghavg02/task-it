@@ -1,6 +1,7 @@
 import express from 'express';
 import {
     createTask,
+    getAllTasks,
     getProjectTasks,
     getSingleTask,
     updateTaskStatus,
@@ -15,9 +16,10 @@ const router = express.Router();
 router.use(protect);
 
 router.post('/', authorizeRoles('admin'), createTask);
+router.get('/', getAllTasks);
 router.get('/project/:projectId', getProjectTasks);
 router.get('/:id', getSingleTask);
-router.patch('/:id/status', authorizeRoles('member'), updateTaskStatus);
+router.patch('/:id/status', updateTaskStatus);
 router.put('/:id', authorizeRoles('admin'), updateTask);
 router.delete('/:id', authorizeRoles('admin'), deleteTask);
 

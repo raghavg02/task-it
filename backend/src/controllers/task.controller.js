@@ -61,10 +61,46 @@ export const createTask = asyncHandler(async (req, res, next) => {
 
     const populatedTask = await Task.findById(task._id).populate(populateTaskOptions);
 
+    // Trigger Notification
+    await mongoose.model('Notification').create({
+        recipient: assignedTo,
+        sender: req.user.userId,
+        type: 'task_assigned',
+        message: `New task assigned: "${title}" in project "${proj.title}"`,
+        link: `/tasks`
+    });
+
     res.status(201).json({
         success: true,
         message: 'Task created successfully',
         data: populatedTask
+    });
+});
+
+// @desc    Get all tasks (Global list)
+// @route   GET /api/tasks
+// @access  Private
+export const getAllTasks = asyncHandler(async (req, res, next) => {
+    let query = {};
+
+    if (req.user.role === 'admin') {
+        // Admin gets all tasks from projects they created
+        const projects = await Project.find({ createdBy: req.user.userId }).select('_id');
+        const projectIds = projects.map(p => p._id);
+        query.project = { $in: projectIds };
+    } else if (req.user.role === 'member') {
+        // Member gets all tasks assigned to them
+        query.assignedTo = req.user.userId;
+    }
+
+    const tasks = await Task.find(query)
+        .populate(populateTaskOptions)
+        .sort({ deadline: 1 });
+
+    res.status(200).json({
+        success: true,
+        message: 'All tasks retrieved successfully',
+        data: tasks
     });
 });
 
@@ -153,7 +189,7 @@ export const updateTaskStatus = asyncHandler(async (req, res, next) => {
         return next(new ApiError(400, 'Invalid task ID'));
     }
 
-    if (!['todo', 'in-progress', 'completed'].includes(status)) {
+    if (!['todo', 'in-progress', 'review', 'completed'].includes(status)) {
         return next(new ApiError(400, 'Invalid status value'));
     }
 
@@ -163,15 +199,34 @@ export const updateTaskStatus = asyncHandler(async (req, res, next) => {
         return next(new ApiError(404, 'Task not found'));
     }
 
-    // Member can update ONLY their own task
-    if (task.assignedTo.toString() !== req.user.userId) {
-        return next(new ApiError(403, 'Not authorized to update this task'));
+    // Access Control: Member can update ONLY their own task, Admin can update tasks in their projects
+    if (req.user.role === 'member') {
+        if (task.assignedTo.toString() !== req.user.userId) {
+            return next(new ApiError(403, 'Not authorized to update this task'));
+        }
+    } else if (req.user.role === 'admin') {
+        const proj = await Project.findById(task.project);
+        if (proj.createdBy.toString() !== req.user.userId) {
+            return next(new ApiError(403, 'Not authorized to update status of this task'));
+        }
     }
 
     task.status = status;
     await task.save();
 
     const updatedTask = await Task.findById(id).populate(populateTaskOptions);
+
+    if (status === 'completed') {
+        // Notify Project Owner
+        const proj = await Project.findById(task.project);
+        await mongoose.model('Notification').create({
+            recipient: proj.createdBy,
+            sender: req.user.userId,
+            type: 'task_completed',
+            message: `Task completed: "${task.title}" by ${req.user.name}`,
+            link: `/projects/${task.project}`
+        });
+    }
 
     res.status(200).json({
         success: true,
@@ -226,7 +281,7 @@ export const updateTask = asyncHandler(async (req, res, next) => {
     }
     if (deadline) task.deadline = deadline;
     if (status) {
-        if (!['todo', 'in-progress', 'completed'].includes(status)) {
+        if (!['todo', 'in-progress', 'review', 'completed'].includes(status)) {
             return next(new ApiError(400, 'Invalid status value'));
         }
         task.status = status;

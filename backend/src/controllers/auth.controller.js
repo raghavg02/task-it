@@ -44,7 +44,8 @@ export const signupUser = asyncHandler(async (req, res, next) => {
         name,
         email,
         password: hashedPassword,
-        role
+        role,
+        needsPasswordChange: false
     });
 
     // Generate token
@@ -60,6 +61,7 @@ export const signupUser = asyncHandler(async (req, res, next) => {
         name: user.name,
         email: user.email,
         role: user.role,
+        needsPasswordChange: user.needsPasswordChange,
         createdAt: user.createdAt,
         updatedAt: user.updatedAt
     };
@@ -110,6 +112,7 @@ export const loginUser = asyncHandler(async (req, res, next) => {
         name: user.name,
         email: user.email,
         role: user.role,
+        needsPasswordChange: user.needsPasswordChange,
         createdAt: user.createdAt,
         updatedAt: user.updatedAt
     };

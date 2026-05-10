@@ -57,22 +57,92 @@ export const getProjects = asyncHandler(async (req, res, next) => {
     let query = {};
 
     if (req.user.role === 'admin') {
-        // Admin gets own projects
+        // Admin gets all projects in the system (or filtered by creator if needed)
+        // For now, let's allow admins to see all projects they created
         query.createdBy = req.user.userId;
     } else if (req.user.role === 'member') {
         // Member gets projects where they are in the members array
         query.members = req.user.userId;
     }
 
-    const projects = await Project.find(query)
-        .populate('createdBy', 'name email role')
-        .populate('members', 'name email role')
-        .sort({ createdAt: -1 });
+    // Convert ID strings to ObjectIds for aggregation
+    const matchQuery = { ...query };
+    if (matchQuery.createdBy) matchQuery.createdBy = new mongoose.Types.ObjectId(matchQuery.createdBy);
+    if (matchQuery.members) matchQuery.members = new mongoose.Types.ObjectId(matchQuery.members);
+
+    const projectsWithStats = await Project.aggregate([
+        { $match: matchQuery },
+        {
+            $lookup: {
+                from: 'tasks',
+                localField: '_id',
+                foreignField: 'project',
+                as: 'tasks'
+            }
+        },
+        {
+            $lookup: {
+                from: 'users',
+                localField: 'members',
+                foreignField: '_id',
+                as: 'members'
+            }
+        },
+        {
+            $lookup: {
+                from: 'users',
+                localField: 'createdBy',
+                foreignField: '_id',
+                as: 'createdBy'
+            }
+        },
+        {
+            $addFields: {
+                taskStats: {
+                    total: { $size: '$tasks' },
+                    completed: {
+                        $size: {
+                            $filter: {
+                                input: '$tasks',
+                                as: 'task',
+                                cond: { $eq: ['$$task.status', 'completed'] }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        {
+            $addFields: {
+                'taskStats.progress': {
+                    $cond: [
+                        { $gt: ['$taskStats.total', 0] },
+                        { $round: [{ $multiply: [{ $divide: ['$taskStats.completed', '$taskStats.total'] }, 100] }] },
+                        0
+                    ]
+                }
+            }
+        },
+        {
+            $project: {
+                tasks: 0,
+                'members.password': 0,
+                'createdBy.password': 0
+            }
+        },
+        { $sort: { createdAt: -1 } }
+    ]);
+
+    // Format createdBy back to a single object (aggregation lookup returns an array)
+    const formattedProjects = projectsWithStats.map(p => ({
+        ...p,
+        createdBy: p.createdBy[0],
+    }));
 
     res.status(200).json({
         success: true,
         message: 'Projects retrieved successfully',
-        data: projects
+        data: formattedProjects
     });
 });
 
@@ -108,10 +178,22 @@ export const getSingleProject = asyncHandler(async (req, res, next) => {
         }
     }
 
+    const total = await mongoose.model('Task').countDocuments({ project: id });
+    const completed = await mongoose.model('Task').countDocuments({ project: id, status: 'completed' });
+
+    const data = {
+        ...project._doc,
+        taskStats: {
+            total,
+            completed,
+            progress: total > 0 ? Math.round((completed / total) * 100) : 0
+        }
+    };
+
     res.status(200).json({
         success: true,
         message: 'Project retrieved successfully',
-        data: project
+        data
     });
 });
 
@@ -209,5 +291,68 @@ export const removeMemberFromProject = asyncHandler(async (req, res, next) => {
         success: true,
         message: 'Member removed successfully',
         data: updatedProject
+    });
+});
+// @desc    Update project
+// @route   PUT /api/projects/:id
+// @access  Private/Admin
+export const updateProject = asyncHandler(async (req, res, next) => {
+    const { id } = req.params;
+    const { title, description, members } = req.body;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+        return next(new ApiError(400, 'Invalid project ID'));
+    }
+
+    let project = await Project.findById(id);
+    if (!project) return next(new ApiError(404, 'Project not found'));
+
+    if (project.createdBy.toString() !== req.user.userId) {
+        return next(new ApiError(403, 'Not authorized to update this project'));
+    }
+
+    if (title) project.title = title;
+    if (description) project.description = description;
+    if (members && Array.isArray(members)) {
+        project.members = members;
+    }
+
+    await project.save();
+
+    const updatedProject = await Project.findById(id)
+        .populate('createdBy', 'name email role')
+        .populate('members', 'name email role');
+
+    res.status(200).json({
+        success: true,
+        message: 'Project updated successfully',
+        data: updatedProject
+    });
+});
+
+// @desc    Delete project
+// @route   DELETE /api/projects/:id
+// @access  Private/Admin
+export const deleteProject = asyncHandler(async (req, res, next) => {
+    const { id } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+        return next(new ApiError(400, 'Invalid project ID'));
+    }
+
+    const project = await Project.findById(id);
+    if (!project) return next(new ApiError(404, 'Project not found'));
+
+    if (project.createdBy.toString() !== req.user.userId) {
+        return next(new ApiError(403, 'Not authorized to delete this project'));
+    }
+
+    // Delete all tasks associated with this project
+    await mongoose.model('Task').deleteMany({ project: id });
+    await Project.findByIdAndDelete(id);
+
+    res.status(200).json({
+        success: true,
+        message: 'Project and associated tasks deleted successfully'
     });
 });
