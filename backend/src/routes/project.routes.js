@@ -5,7 +5,6 @@ import { authorizeRoles } from '../middleware/role.middleware.js';
 
 const router = express.Router();
 
-// Apply protect middleware to all project routes
 router.use(protect);
 
 router.post('/', authorizeRoles('admin'), createProject);

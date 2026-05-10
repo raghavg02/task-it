@@ -11,13 +11,9 @@ const populateTaskOptions = [
     { path: 'createdBy', select: 'name email role' }
 ];
 
-// @desc    Create a new task
-// @route   POST /api/tasks
-// @access  Private/Admin
 export const createTask = asyncHandler(async (req, res, next) => {
     const { title, description, priority, deadline, assignedTo, project } = req.body;
 
-    // Validate required fields
     if (!title || !description || !deadline || !assignedTo || !project) {
         return next(new ApiError(400, 'Please provide all required fields'));
     }
@@ -26,29 +22,24 @@ export const createTask = asyncHandler(async (req, res, next) => {
         return next(new ApiError(400, 'Invalid Object ID for assignedTo or project'));
     }
 
-    // Validate project exists
     const proj = await Project.findById(project);
     if (!proj) {
         return next(new ApiError(404, 'Project not found'));
     }
 
-    // Ensure logged in admin owns the project
     if (proj.createdBy.toString() !== req.user.userId) {
         return next(new ApiError(403, 'Not authorized to add tasks to this project'));
     }
 
-    // Validate assigned user exists
     const user = await User.findById(assignedTo);
     if (!user) {
         return next(new ApiError(404, 'Assigned user not found'));
     }
 
-    // Ensure assigned user is a member of the project
     if (!proj.members.includes(assignedTo)) {
         return next(new ApiError(400, 'Assigned user is not a member of this project'));
     }
 
-    // Create task
     const task = await Task.create({
         title,
         description,
@@ -61,7 +52,6 @@ export const createTask = asyncHandler(async (req, res, next) => {
 
     const populatedTask = await Task.findById(task._id).populate(populateTaskOptions);
 
-    // Trigger Notification
     await mongoose.model('Notification').create({
         recipient: assignedTo,
         sender: req.user.userId,
@@ -77,19 +67,14 @@ export const createTask = asyncHandler(async (req, res, next) => {
     });
 });
 
-// @desc    Get all tasks (Global list)
-// @route   GET /api/tasks
-// @access  Private
 export const getAllTasks = asyncHandler(async (req, res, next) => {
     let query = {};
 
     if (req.user.role === 'admin') {
-        // Admin gets all tasks from projects they created
         const projects = await Project.find({ createdBy: req.user.userId }).select('_id');
         const projectIds = projects.map(p => p._id);
         query.project = { $in: projectIds };
     } else if (req.user.role === 'member') {
-        // Member gets all tasks assigned to them
         query.assignedTo = req.user.userId;
     }
 
@@ -104,9 +89,6 @@ export const getAllTasks = asyncHandler(async (req, res, next) => {
     });
 });
 
-// @desc    Get project tasks
-// @route   GET /api/tasks/project/:projectId
-// @access  Private
 export const getProjectTasks = asyncHandler(async (req, res, next) => {
     const { projectId } = req.params;
 
@@ -122,12 +104,10 @@ export const getProjectTasks = asyncHandler(async (req, res, next) => {
     let query = { project: projectId };
 
     if (req.user.role === 'admin') {
-        // Admin gets tasks if they own the project
         if (project.createdBy.toString() !== req.user.userId) {
             return next(new ApiError(403, 'Not authorized to view tasks for this project'));
         }
     } else if (req.user.role === 'member') {
-        // Member gets ONLY tasks assigned to them within that project
         query.assignedTo = req.user.userId;
     }
 
@@ -142,9 +122,6 @@ export const getProjectTasks = asyncHandler(async (req, res, next) => {
     });
 });
 
-// @desc    Get single task
-// @route   GET /api/tasks/:id
-// @access  Private
 export const getSingleTask = asyncHandler(async (req, res, next) => {
     const { id } = req.params;
 
@@ -158,14 +135,11 @@ export const getSingleTask = asyncHandler(async (req, res, next) => {
         return next(new ApiError(404, 'Task not found'));
     }
 
-    // Access control
     if (req.user.role === 'admin') {
-        // Admin can access tasks only from their own projects
         if (task.project.createdBy.toString() !== req.user.userId) {
             return next(new ApiError(403, 'Not authorized to view this task'));
         }
     } else if (req.user.role === 'member') {
-        // Member can access only tasks assigned to them
         if (task.assignedTo._id.toString() !== req.user.userId) {
             return next(new ApiError(403, 'Not authorized to view this task'));
         }
@@ -178,9 +152,6 @@ export const getSingleTask = asyncHandler(async (req, res, next) => {
     });
 });
 
-// @desc    Update task status (Member only)
-// @route   PATCH /api/tasks/:id/status
-// @access  Private/Member
 export const updateTaskStatus = asyncHandler(async (req, res, next) => {
     const { id } = req.params;
     const { status } = req.body;
@@ -199,7 +170,6 @@ export const updateTaskStatus = asyncHandler(async (req, res, next) => {
         return next(new ApiError(404, 'Task not found'));
     }
 
-    // Access Control: Member can update ONLY their own task, Admin can update tasks in their projects
     if (req.user.role === 'member') {
         if (task.assignedTo.toString() !== req.user.userId) {
             return next(new ApiError(403, 'Not authorized to update this task'));
@@ -217,7 +187,6 @@ export const updateTaskStatus = asyncHandler(async (req, res, next) => {
     const updatedTask = await Task.findById(id).populate(populateTaskOptions);
 
     if (status === 'completed') {
-        // Notify Project Owner
         const proj = await Project.findById(task.project);
         await mongoose.model('Notification').create({
             recipient: proj.createdBy,
@@ -235,9 +204,6 @@ export const updateTaskStatus = asyncHandler(async (req, res, next) => {
     });
 });
 
-// @desc    Update task details
-// @route   PUT /api/tasks/:id
-// @access  Private/Admin
 export const updateTask = asyncHandler(async (req, res, next) => {
     const { id } = req.params;
     const { title, description, priority, deadline, assignedTo, status } = req.body;
@@ -251,7 +217,6 @@ export const updateTask = asyncHandler(async (req, res, next) => {
         return next(new ApiError(404, 'Task not found'));
     }
 
-    // Admin can update ONLY tasks from their own projects
     const proj = await Project.findById(task.project);
     if (proj.createdBy.toString() !== req.user.userId) {
         return next(new ApiError(403, 'Not authorized to update this task'));
@@ -298,9 +263,6 @@ export const updateTask = asyncHandler(async (req, res, next) => {
     });
 });
 
-// @desc    Delete task
-// @route   DELETE /api/tasks/:id
-// @access  Private/Admin
 export const deleteTask = asyncHandler(async (req, res, next) => {
     const { id } = req.params;
 
@@ -313,7 +275,6 @@ export const deleteTask = asyncHandler(async (req, res, next) => {
         return next(new ApiError(404, 'Task not found'));
     }
 
-    // Admin can delete ONLY tasks from their own projects
     const proj = await Project.findById(task.project);
     if (proj.createdBy.toString() !== req.user.userId) {
         return next(new ApiError(403, 'Not authorized to delete this task'));

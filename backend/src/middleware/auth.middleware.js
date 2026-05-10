@@ -15,7 +15,7 @@ export const protect = asyncHandler(async (req, res, next) => {
 
     try {
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
-        
+
         req.user = {
             userId: decoded.userId,
             role: decoded.role

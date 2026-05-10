@@ -3,9 +3,6 @@ import Task from '../models/task.model.js';
 import User from '../models/user.model.js';
 import asyncHandler from '../utils/asyncHandler.js';
 
-// @desc    Global search across projects, tasks, and users
-// @route   GET /api/search
-// @access  Private
 export const globalSearch = asyncHandler(async (req, res) => {
     const { q } = req.query;
 
@@ -18,23 +15,22 @@ export const globalSearch = asyncHandler(async (req, res) => {
 
     const searchRegex = new RegExp(q, 'i');
 
-    // Parallel search for speed
     const [projects, tasks, members] = await Promise.all([
-        Project.find({ 
+        Project.find({
             $or: [
                 { title: searchRegex },
                 { description: searchRegex }
             ]
         }).limit(5).select('title _id'),
-        
-        Task.find({ 
+
+        Task.find({
             $or: [
                 { title: searchRegex },
                 { description: searchRegex }
             ]
         }).limit(5).select('title _id status'),
-        
-        User.find({ 
+
+        User.find({
             $or: [
                 { name: searchRegex },
                 { email: searchRegex }

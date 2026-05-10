@@ -1,9 +1,9 @@
 import express from 'express';
-import { 
-    getAllMembers, 
-    updateProfile, 
-    changePassword, 
-    getNotifications, 
+import {
+    getAllMembers,
+    updateProfile,
+    changePassword,
+    getNotifications,
     markNotificationRead,
     removeMember,
     inviteMember
